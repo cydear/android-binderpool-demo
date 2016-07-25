@@ -26,6 +26,8 @@ public class BinderPool {
     private Context mContext;
     private IBinderPool mBinderPool;
     private static volatile BinderPool sInstance;
+    //用于同步线程,所有线程执行完毕才执行主线程
+    //在子线程执行过程中主线程被阻塞
     private CountDownLatch mConnectBinderPoolCountDownLatch;
 
     private BinderPool(Context context) {
@@ -44,6 +46,9 @@ public class BinderPool {
         return sInstance;
     }
 
+    /**
+     * 创建Binder池时,绑定BindPoolService
+     */
     private synchronized void connectBinderPoolService() {
         mConnectBinderPoolCountDownLatch = new CountDownLatch(1);
         Intent service = new Intent(mContext, BinderPoolService.class);
@@ -74,15 +79,20 @@ public class BinderPool {
         return binder;
     }
 
+    /**
+     * 设置ServiceConnection 绑定在BinderPoolService服务上
+     */
     private ServiceConnection mBinderPoolConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
             mBinderPool = IBinderPool.Stub.asInterface(iBinder);
             try {
+                //给Binder设置死亡代理
                 mBinderPool.asBinder().linkToDeath(mBinderPoolDeathRecipient, 0);
             } catch (RemoteException e) {
                 e.printStackTrace();
             }
+            //通知主线程service所在线程已经执行完毕
             mConnectBinderPoolCountDownLatch.countDown();
         }
 
@@ -92,6 +102,10 @@ public class BinderPool {
         }
     };
 
+    /**
+     * 设置Binder的死亡代理,Binder死亡后会通知DeathRecipient对象,并在binderDied方法中设置死亡后的操作
+     * 可以重新连接service
+     */
     private IBinder.DeathRecipient mBinderPoolDeathRecipient = new IBinder.DeathRecipient() {
         @Override
         public void binderDied() {
@@ -102,6 +116,9 @@ public class BinderPool {
         }
     };
 
+    /**
+     * 实现IBinderPool.Stub并实现里面的queryBinder方法
+     */
     public static class BinderPoolImpl extends IBinderPool.Stub {
         public BinderPoolImpl() {
             super();
